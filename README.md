@@ -4,7 +4,7 @@ This is the relevant code repository for reproducing the models and pipeline des
 ## Framework
 <p align="center">
     <br>
-    <img src="./figures/algo.png" id="framework"/>
+    <img src="figures/algo.png" id="framework"/>
       <figcaption style="text-align: center;"> Algorithm process for Self-Evaluation Decoding. </figcaption>
     <br>
 </p>
@@ -23,7 +23,7 @@ The following figure depicts the details of Step **3** through one real case. ðŸ
 
 <p align="center">
     <br>
-    <img src="./figures/workflow.png" id="framework"/>
+    <img src="figures/workflow.png" id="framework"/>
       <figcaption style="text-align: center;"> The workflow  of token selection at ONE chaotic point during decoding. 
 Other chaotic points also follow a similar process. </figcaption>
     <br>
