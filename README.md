@@ -1,5 +1,5 @@
-# SED: Self-Evaluation Decoding Enhances Large Language Models for Better Generation
-This is the relevant code repository for reproducing the models and pipeline described in *SED: Self-Evaluation Decoding Enhances Large Language Models for Better Generation*.
+# DEval: Enhancing Large Language Models' Decoding with Evaluation for Better Generation
+This is the relevant code repository for reproducing the models and pipeline described in *DEval: Enhancing Large Language Models' Decoding with Evaluation for Better Generation*.
 
 ## Framework
 <p align="center">
