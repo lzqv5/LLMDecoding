@@ -11,13 +11,13 @@ This is the relevant code repository for reproducing the models and pipeline des
 
 **Brief summary**
 
-For each token $t_i$ that Model $\mathcal{M}$ will generate: ( line 2 )
+For each token $t_i$ that Model $\mathcal{M}$ will generate: ( line 3 )
 
-1. calculate the token distribution $\mathbb{P}_i$ ( line 3 )
-2. check whether $t_i$ is chaotic. ( line 4 )
-3. If so, apply **SED** on $\mathcal{M}$ to determine $t_i$. ( line 5-9 )
-4. If not, select $t_i$ through standard decoding method. ( line 10-11 )
-5. update the context. (`generated_tokens.append`) ( line 13 )
+1. calculate the token distribution $\mathbb{P}_i$ ( line 4 )
+2. check whether $t_i$ is chaotic. ( line 5-6 )
+3. If so, apply **DEval** on $\mathcal{M}$ to determine $t_i$. ( line 6-11 )
+4. If not, select $t_i$ through standard decoding method. ( line 12-13 )
+5. update the context. (`generated_tokens.append`) ( line 15 )
 
 The following figure depicts the details of Step **3** through one real case. 👇👇👇
 
