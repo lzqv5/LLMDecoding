@@ -4,6 +4,7 @@ import os, json, argparse, re
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers.generation.logits_process import LogitsProcessorList
 from logits_processor_utils import SelfEvaluationDecodingLogitsProcessorpe, generation_config
+from logits_processor_utils import self_consistency, best_of_N
 
 
 prompt_for_reso = """Given the following math question, answer it through step-by-step reasoning.
@@ -74,6 +75,8 @@ if __name__ == "__main__":
     parser.add_argument("--do_beam_search",type=int, default=0, help="whether to apply beam search")
     parser.add_argument("--num_beams",type=int, default=3, help="whether to apply beam search")
     parser.add_argument("--do_sample",type=int, default=0, help="whether to apply sampling")
+    parser.add_argument("--do_self_consistency",type=int, default=0, help="whether to apply self-consistency")
+    parser.add_argument("--do_best_of_n",type=int, default=0, help="whether to apply best-of-N")
     parser.add_argument("--branching_limit",type=int, default=1, help="the maximum number of times the model can speculate on different chaotic points in one sequence")
     parser.add_argument("--topk",type=int, default=2, help="number of token candidates for speculation")
     parser.add_argument("--ratio",type=float, default=0.5, help="ratio-based detection threshold")
@@ -163,6 +166,16 @@ if __name__ == "__main__":
                 logits_processor[0].cur_branching_num = [0]*args.num_beams
                 output = llm.generate(**inputs, max_new_tokens=768, num_beams=args.num_beams, logits_processor=logits_processor)[0] #* beam for generation
             outputs.append(tokenizer.decode(output, skip_special_tokens=True))
+        elif args.do_self_consistency:
+            outputs.append(
+                self_consistency(llm, tokenizer, prompt, num_return_sequences = args.branching_limit*args.topk)
+            )
+        elif args.do_best_of_n:
+            outputs.append(
+                best_of_N(llm, tokenizer, prompt, N=args.branching_limit*args.topk, # N=args.branching_limit*args.topk,
+                  correctTokenIdx=correctTokenIdx, 
+                  doubleBracketTokenIdx=doubleBracketTokenIdx)
+            )
         elif args.do_beam_search: #* Without applying SED, the model uses beam search for decoding.
             outputs.append(tokenizer.batch_decode(llm.generate(**inputs, num_beams=args.num_beams, max_new_tokens=768))[0])
         elif args.do_sample: #* Without applying SED, the model uses sampling for decoding.

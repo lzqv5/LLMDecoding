@@ -1,4 +1,4 @@
-import transformers, torch
+import transformers, torch, re
 from transformers.generation.logits_process import LogitsProcessor, LogitsProcessorList, LOGITS_PROCESSOR_INPUTS_DOCSTRING
 from transformers.utils.doc import add_start_docstrings
 
@@ -197,7 +197,7 @@ class SelfEvaluationDecodingLogitsProcessorpe(LogitsProcessor):
 
     def _find_last_token_pre_idx(self, output_ids):
         indices = torch.nonzero(output_ids == self.doubleBracketTokenIdx, as_tuple=False)
-        unique_indices = [] # 去重
+        unique_indices = [] 
         cnt = defaultdict(int)
         for i in range(indices.shape[0]-1, -1, -1):
             r, idx = indices[i]
@@ -210,8 +210,105 @@ class SelfEvaluationDecodingLogitsProcessorpe(LogitsProcessor):
         indices = torch.tensor(unique_indices, device=output_ids.device)
         indices[:, 1] -= 1
         return indices[torch.argsort(indices[:, 0], dim=0)]
-                
-                
+
+prompt_for_reso = """Given the following math question, answer it through step-by-step reasoning.
+---
+Question: {question}
+---
+
+Answer: """
+
+prompt_for_judge =  """Judge the correctness of the answer in the following Q&A scenario:
+###
+{output}
+###
+
+Judge: """
+
+generation_config_for_judge = {
+    "use_cache": True, 
+    "max_new_tokens": 512,
+    # "do_sample": False,
+    # "num_beams": 1,
+    "output_scores": True,
+    "return_dict_in_generate": True,
+}
+
+softmax = torch.nn.Softmax(dim=-1)
+            
+pattern = r'\[\[(.*?)\]\]'
+def extract(response):
+    try: extracted_ans = re.findall(pattern, response)[-1].strip()
+    except: extracted_ans = ""
+    return extracted_ans
+
+def find_last_token_pre_idx(output_ids, doubleBracketTokenIdx):
+    indices = torch.nonzero(output_ids == doubleBracketTokenIdx, as_tuple=False)
+    unique_indices = [] 
+    cnt = defaultdict(int)
+    for i in range(indices.shape[0]-1, -1, -1):
+        r, idx = indices[i]
+        if cnt[r.item()] == 0:
+            cnt[r.item()] += 1
+            unique_indices.append([r.item(), idx.item()])
+    for i in range(output_ids.shape[0]): # full_batch_size
+        if cnt[i]==0: 
+            unique_indices.append([i, output_ids.shape[1]-1])
+    indices = torch.tensor(unique_indices, device=output_ids.device)
+    indices[:, 1] -= 1
+    return indices[torch.argsort(indices[:, 0], dim=0)]
+
+def self_consistency(model, tokenizer, prompt, num_return_sequences, temperature=0.7, top_p=0.9, top_k=20):
+    inputs = tokenizer(prompt, return_tensors="pt").to("cuda")
+    # inputs.input_ids.shape = [1, seq_len]
+    # model_output.shape = [num_return_sequences, max_seq_len]
+    model_output = model.generate(**inputs,
+                                  do_sample=True,
+                                  temperature = temperature,
+                                  top_p = top_p,
+                                  top_k = top_k,
+                                  num_return_sequences = num_return_sequences,
+                                  max_new_tokens=320,
+                                )
+    # len(tokenizer.batch_decode(model_output)) == num_return_sequences
+    memo = defaultdict(list) 
+    for response in tokenizer.batch_decode(model_output, skip_special_tokens=True): 
+        memo[extract(response)].append(response.replace("<|endoftext|>",""))
+    print(memo.keys())
+    # majority voting
+    pred_num = sorted([(k, len(r)) for k,r in memo.items()], key=lambda x:-x[1])[0][0]
+    return memo[pred_num][0]    
+
+def best_of_N(model, tokenizer, prompt, N, correctTokenIdx, doubleBracketTokenIdx, temperature=0.7, top_p=0.9, top_k=20):
+    inputs = tokenizer(prompt, return_tensors="pt").to("cuda")
+    gen_outputs = model.generate(**inputs,
+                                  do_sample=True,
+                                  temperature = temperature,
+                                  top_p = top_p,
+                                  top_k = top_k,
+                                  num_return_sequences = N,
+                                  max_new_tokens=512,
+                                )
+    output_texts = tokenizer.batch_decode(gen_outputs, skip_special_tokens=True)
+    judge_texts = [prompt_for_judge.format(output=t) for t in output_texts] 
+    judge_inputs = tokenizer(judge_texts, return_tensors='pt', padding=True)
+    judge_outputs = model.generate(input_ids=judge_inputs.input_ids.to(model.device), 
+                                   attention_mask=judge_inputs.attention_mask.to(model.device),
+                                   **generation_config_for_judge)
+    judge_outputs = model.generate(input_ids=judge_inputs.input_ids.to(model.device),attention_mask=judge_inputs.attention_mask.to(model.device),**generation_config_for_judge)
+    output_ids, logits = judge_outputs["sequences"], judge_outputs["scores"]
+    logits = torch.cat(logits, dim=0) 
+    batch_size, input_seq_len, full_seq_len = judge_inputs["input_ids"].shape[0], judge_inputs["input_ids"].shape[1], output_ids.shape[1]
+    label_token_pos = find_last_token_pre_idx(output_ids, doubleBracketTokenIdx)
+    reordered_rowIdxs = [] 
+    for r, idx in label_token_pos:
+        r, idx = r.item(), idx.item()-input_seq_len
+        reordered_rowIdxs.append(idx*batch_size+r)   
+    log_probs = softmax(logits[reordered_rowIdxs]) # shape = [N, vocab_size]
+    log_probs = log_probs[:,correctTokenIdx] # shape = [reduced_batch_size * k]
+    print(log_probs)
+    return output_texts[torch.argmax(log_probs).item()]
+    
 
 # if __name__ == "__main__":
 #     print("loading...")
